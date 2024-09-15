@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatter Box</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#FF4D80">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #FF4D80;
+            --secondary-color: #00C9A7;
+            --background-color: #FFF8F0;
+            --text-color: #333;
+            --card-background: white;
+        }
+        body {
+            font-family: 'Fredoka One', cursive;
+            margin: 0;
+            padding: 0;
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: var(--primary-color);
+        }
+        textarea, input, select, button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: 2px solid var(--secondary-color);
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-family: 'Fredoka One', cursive;
+        }
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            filter: brightness(110%);
+        }
+        .card {
+            background-color: var(--card-background);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .tab-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 10px 20px;
+            background-color: var(--secondary-color);
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .tab.active {
+            background-color: var(--primary-color);
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        #colorSchemes button {
+            width: auto;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Chatter Box 📦</h1>
+        
+        <div class="tab-container">
+            <div class="tab active" onclick="showTab('compose')">Compose</div>
+            <div class="tab" onclick="showTab('channels')">Channels</div>
+            <div class="tab" onclick="showTab('people')">People</div>
+            <div class="tab" onclick="showTab('scheduled')">Scheduled</div>
+            <div class="tab" onclick="showTab('settings')">Settings</div>
+        </div>
+
+        <div id="compose" class="tab-content active">
+            <h2>Compose Message</h2>
+            <textarea id="message" placeholder="Type your message here..."></textarea>
+            <button onclick="sendToAll()">Send to All</button>
+            <h3>Schedule Message</h3>
+            <input id="scheduleTime" type="datetime-local">
+            <select id="scheduleType">
+                <option value="one-time">One-time</option>
+                <option value="recurring">Recurring</option>
+            </select>
+            <input id="recurringInterval" type="number" placeholder="Interval (in minutes)" style="display: none;">
+            <button onclick="scheduleMessage()">Schedule</button>
+        </div>
+
+        <div id="channels" class="tab-content">
+            <h2>Communication Channels</h2>
+            <div id="channelList"></div>
+            <h3>Add New Channel</h3>
+            <select id="channelType">
+                <option value="">Select Channel Type</option>
+                <option value="sms">SMS</option>
+                <option value="email">Email</option>
+                <option value="twitter">Twitter</option>
+                <option value="instagram">Instagram</option>
+                <option value="facebook">Facebook</option>
+                <option value="custom">Custom</option>
+            </select>
+            <input id="channelName" type="text" placeholder="Channel Name">
+            <input id="channelEndpoint" type="text" placeholder="API Endpoint (for custom channels)" style="display: none;">
+            <button onclick="addChannel()">Add Channel</button>
+        </div>
+
+        <div id="people" class="tab-content">
+            <h2>People</h2>
+            <div id="peopleList"></div>
+            <h3>Add New Person</h3>
+            <input id="personName" type="text" placeholder="Person's Name">
+            <input id="personContact" type="text" placeholder="Contact Info">
+            <button onclick="addPerson()">Add Person</button>
+        </div>
+
+        <div id="scheduled" class="tab-content">
+            <h2>Scheduled Messages</h2>
+            <div id="scheduledList"></div>
+        </div>
+
+        <div id="settings" class="tab-content">
+            <h2>Settings</h2>
+            <h3>Color Scheme</h3>
+            <div id="colorSchemes">
+                <button onclick="setColorScheme('funky')">Funky</button>
+                <button onclick="setColorScheme('pastel')">Pastel</button>
+                <button onclick="setColorScheme('neon')">Neon</button>
+                <button onclick="setColorScheme('light')">Professional Light</button>
+                <button onclick="setColorScheme('dark')">Professional Dark</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize IndexedDB
+        const db = new Dexie('ChatterBox');
+        db.version(1).stores({
+            channels: '++id, name, type, endpoint',
+            people: '++id, name, contact',
+            schedules: '++id, message, time, type, interval, channels'
+        });
+
+        // Load channels
+        async function loadChannels() {
+            const channels = await db.channels.toArray();
+            const channelList = document.getElementById('channelList');
+            channelList.innerHTML = '';
+            channels.forEach(channel => {
+                const channelDiv = document.createElement('div');
+                channelDiv.className = 'card';
+                channelDiv.innerHTML = `
+                    <h3>${channel.name}</h3>
+                    <p>Type: ${channel.type}</p>
+                    <button onclick="sendMessage(${channel.id})">Send Message</button>
+                    <button onclick="deleteChannel(${channel.id})">Delete</button>
+                `;
+                channelList.appendChild(channelDiv);
+            });
+        }
+
+        // Load people
+        async function loadPeople() {
+            const people = await db.people.toArray();
+            const peopleList = document.getElementById('peopleList');
+            peopleList.innerHTML = '';
+            people.forEach(person => {
+                const personDiv = document.createElement('div');
+                personDiv.className = 'card';
+                personDiv.innerHTML = `
+                    <h3>${person.name}</h3>
+                    <p>Contact: ${person.contact}</p>
+                    <button onclick="deletePerson(${person.id})">Delete</button>
+                `;
+                peopleList.appendChild(personDiv);
+            });
+        }
+
+        // Load scheduled messages
+        async function loadScheduledMessages() {
+            const schedules = await db.schedules.toArray();
+            const scheduledList = document.getElementById('scheduledList');
+            scheduledList.innerHTML = '';
+            schedules.forEach(schedule => {
+                const scheduleDiv = document.createElement('div');
+                scheduleDiv.className = 'card';
+                scheduleDiv.innerHTML = `
+                    <h3>Scheduled for: ${new Date(schedule.time).toLocaleString()}</h3>
+                    <p>Message: ${schedule.message}</p>
+                    <p>Type: ${schedule.type}</p>
+                    ${schedule.type === 'recurring' ? `<p>Interval: ${schedule.interval / 60000} minutes</p>` : ''}
+                    <button onclick="deleteSchedule(${schedule.id})">Delete</button>
+                `;
+                scheduledList.appendChild(scheduleDiv);
+            });
+        }
+
+        // Add new channel
+        async function addChannel() {
+            const name = document.getElementById('channelName').value;
+            const type = document.getElementById('channelType').value;
+            let endpoint = '';
+            
+            if (type === 'custom') {
+                endpoint = document.getElementById('channelEndpoint').value;
+            } else {
+                // Predefined endpoints for standard channels
+                const endpoints = {
+                    sms: 'sms://send',
+                    email: 'mailto:',
+                    twitter: 'https://api.twitter.com/2/tweets',
+                    instagram: 'https://graph.instagram.com/me/media',
+                    facebook: 'https://graph.facebook.com/v12.0/me/feed'
+                };
+                endpoint = endpoints[type] || '';
+            }
+            
+            await db.channels.add({ name, type, endpoint });
+            loadChannels();
+        }
+
+        // Add new person
+        async function addPerson() {
+            const name = document.getElementById('personName').value;
+            const contact = document.getElementById('personContact').value;
+            await db.people.add({ name, contact });
+            loadPeople();
+        }
+
+        // Delete channel
+        async function deleteChannel(id) {
+            await db.channels.delete(id);
+            loadChannels();
+        }
+
+        // Delete person
+        async function deletePerson(id) {
+            await db.people.delete(id);
+            loadPeople();
+        }
+
+        // Delete scheduled message
+        async function deleteSchedule(id) {
+            await db.schedules.delete(id);
+            loadScheduledMessages();
+        }
+
+        // Send message to a specific channel
+        async function sendMessage(channelId) {
+            const message = document.getElementById('message').value;
+            const channel = await db.channels.get(channelId);
+            
+            console.log(`Sending message to ${channel.name} (${channel.type}): ${message}`);
+            
+            // Simulate API call
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            alert(`Message sent to ${channel.name}`);
+        }
+
+        // Send message to all channels
+        async function sendToAll() {
+            const message = document.getElementById('message').value;
+            const channels = await db.channels.toArray();
+            
+            for (const channel of channels) {
+                console.log(`Sending message to ${channel.name} (${channel.type}): ${message}`);
+                // Simulate API call
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
+            alert('Message sent to all channels');
+        }
+
+        // Schedule message
+        async function scheduleMessage() {
+            const message = document.getElementById('message').value;
+            const time = new Date(document.getElementById('scheduleTime').value).getTime();
+            const type = document.getElementById('scheduleType').value;
+            const interval = type === 'recurring' ? parseInt(document.getElementById('recurringInterval').value) * 60000 : null;
+            const channels = await db.channels.toArray();
+            const channelIds = channels.map(channel => channel.id);
+
+            await db.schedules.add({ message, time, type, interval, channels: channelIds });
+            alert('Message scheduled');
+            loadScheduledMessages();
+        }
+
+        // Toggle recurring interval input and custom channel endpoint
+        document.getElementById('scheduleType').addEventListener('change', function() {
+            document.getElementById('recurringInterval').style.display = 
+                this.value === 'recurring' ? 'inline' : 'none';
+        });
+
+        document.getElementById('channelType').addEventListener('change', function() {
+            document.getElementById('channelEndpoint').style.display = 
+                this.value === 'custom' ? 'inline' : 'none';
+        });
+
+        // Tab functionality
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`.tab:nth-child(${['compose', 'channels', 'people', 'scheduled', 'settings'].indexOf(tabName) + 1})`).classList.add('active');
+        }
+
+        // Color scheme functionality
+        const colorSchemes = {
+            funky: {
+                '--primary-color': '#FF4D80',
+                '--secondary-color': '#00C9A7',
+                '--background-color': '#FFF8F0',
+                '--text-color': '#333',
+                '--card-background': 'white'
+            },
+            pastel: {
+                '--primary-color': '#FFB3BA',
+                '--secondary-color': '#BAFFC9',
+                '--background-color': '#FAF0E6',
+                '--text-color': '#4A4A4A',
+                '--card-background': '#FFFFD2'
+            },
+            neon: {
+                '--primary-color': '#FF00FF',
+                '--secondary-color': '#00FFFF',
+                '--background-color': '#000000',
+                '--text-color': '#FFFFFF',
+                '--card-background': '#1A1A1A'
+            },
+            light: {
+                '--primary-color': '#007BFF',
+                '--secondary-color': '#6C757D',
+                '--background-color': '#F8F9FA',
+                '--text-color': '#212529',
+                '--card-background': 'white'
+            },
+            dark: {
+                '--primary-color': '#17A2B8',
+                '--secondary-color': '#6C757D',
+                '--background-color': '#343A40',
+                '--text-color': '#F8F9FA',
+                '--card-background': '#454D55'
+            }
+        };
+
+        function setColorScheme(scheme) {
+            const root = document.documentElement;
+            for (const [property, value] of Object.entries(colorSchemes[scheme])) {
+                root.style.setProperty(property, value);
+            }
+            localStorage.setItem('colorScheme', scheme);
+        }
+
+        // Load saved color scheme
+        const savedScheme = localStorage.getItem('colorScheme');
+        if (savedScheme) {
+            setColorScheme(savedScheme);
+        }
+
+        // Load data on page load
+        loadChannels();
+        loadPeople();
+        loadScheduledMessages();
+
+        // Service Worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').then(function(registration) {
+                console.log('Service Worker registered with scope:', registration.scope);
+            }).catch(function(error) {
+                console.log('Service Worker registration failed:', error);
+            });
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            loadChannels();
+            loadPeople();
+            loadScheduledMessages();
+            
+            // Set initial color scheme
+            const savedScheme = localStorage.getItem('colorScheme') || 'funky';
+            setColorScheme(savedScheme);
+        });
+    </script>
+</body>
+</html>
